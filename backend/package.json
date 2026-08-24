@@ -1,0 +1,32 @@
+{
+  "name": "html2pdf-backend",
+  "version": "1.0.0",
+  "description": "HTML to PDF conversion API with subscriptions billed via pluggable payment providers (Paystack first).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
+    "puppeteer-core": "^23.5.0"
+  },
+  "devDependencies": {
+    "prisma": "^7.9.1"
+  }
+}

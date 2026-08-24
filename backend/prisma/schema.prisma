@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  //url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int            @id @default(autoincrement())
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  apiKeys       ApiKey[]
+  subscriptions Subscription[]
+  payments      Payment[]
+  usageLogs     UsageLog[]
+
+  @@map("users")
+}
+
+model ApiKey {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  key       String   @unique
+  label     String   @default("default")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id])
+  usageLogs UsageLog[]
+
+  @@map("api_keys")
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  cancelled
+}
+
+model Subscription {
+  id                     Int                @id @default(autoincrement())
+  userId                 Int                @map("user_id")
+  planId                 String             @default("free") @map("plan_id")
+  status                 SubscriptionStatus @default(active)
+  provider               String             @default("paystack")
+  providerSubscriptionId String?            @map("provider_subscription_id")
+  currentPeriodStart     DateTime           @default(now()) @map("current_period_start")
+  currentPeriodEnd       DateTime?          @map("current_period_end")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
+}
+
+model Payment {
+  id        Int           @id @default(autoincrement())
+  userId    Int           @map("user_id")
+  provider  String
+  reference String        @unique
+  planId    String        @map("plan_id")
+  amount    Int
+  currency  String
+  status    PaymentStatus @default(pending)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("payments")
+}
+
+model UsageLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  apiKeyId    Int?     @map("api_key_id")
+  periodMonth String   @map("period_month") // 'YYYY-MM'
+  count       Int      @default(0)
+
+  user   User    @relation(fields: [userId], references: [id])
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id])
+
+  @@unique([userId, periodMonth])
+  @@map("usage_logs")
+}
