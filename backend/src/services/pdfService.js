@@ -1,6 +1,9 @@
 const puppeteer = require('puppeteer-core');
+const dns = require('dns').promises;
+const net = require('net');
 
 let browserPromise = null;
+const activeRenders = new Map();
 
 /**
  * Reuse a single headless Chromium instance across requests (much faster than
@@ -57,6 +60,8 @@ async function convertHtmlToPdf(opts) {
     margin = { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
     watermark = false,
     timeoutMs = 30000,
+    concurrencyKey = null,
+    concurrencyLimit = Infinity,
   } = opts;
 
   if (!html && !url) {
@@ -66,13 +71,27 @@ async function convertHtmlToPdf(opts) {
     throw new Error(`Invalid format "${format}". Allowed: ${ALLOWED_FORMATS.join(', ')}`);
   }
 
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+  const releaseSlot = acquireRenderSlot(concurrencyKey, concurrencyLimit);
+  let page;
 
   try {
+    const browser = await getBrowser();
+    page = await browser.newPage();
     page.setDefaultNavigationTimeout(timeoutMs);
 
     if (url) {
+      await assertPublicUrl(url);
+      await page.setRequestInterception(true);
+      page.on('request', async (request) => {
+        try {
+          if (request.url().startsWith('http://') || request.url().startsWith('https://')) {
+            await assertPublicUrl(request.url());
+          }
+          await request.continue();
+        } catch {
+          await request.abort('blockedbyclient');
+        }
+      });
       await page.goto(url, { waitUntil: 'networkidle0', timeout: timeoutMs });
     } else {
       let finalHtml = html;
@@ -93,8 +112,69 @@ async function convertHtmlToPdf(opts) {
     // sends binary PDF bytes instead of JSON-serializing the typed array.
     return Buffer.from(pdfData);
   } finally {
-    await page.close();
+    if (page) await page.close();
+    releaseSlot();
   }
+}
+
+function acquireRenderSlot(key, limit) {
+  if (!key || !Number.isFinite(limit)) return () => {};
+  const active = activeRenders.get(key) || 0;
+  if (active >= limit) {
+    const error = new Error('Concurrent conversion limit reached for this plan');
+    error.code = 'RENDER_CAPACITY';
+    throw error;
+  }
+  activeRenders.set(key, active + 1);
+  return () => {
+    const remaining = (activeRenders.get(key) || 1) - 1;
+    if (remaining > 0) activeRenders.set(key, remaining);
+    else activeRenders.delete(key);
+  };
+}
+
+async function assertPublicUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('Invalid URL');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new Error('Only public HTTP(S) URLs are allowed');
+  }
+
+  const addresses = net.isIP(parsed.hostname)
+    ? [parsed.hostname]
+    : (await dns.lookup(parsed.hostname, { all: true })).map(({ address }) => address);
+
+  if (!addresses.length || addresses.some(isPrivateAddress)) {
+    throw new Error('URL resolves to a private or local address');
+  }
+}
+
+function isPrivateAddress(address) {
+  if (address.toLowerCase().startsWith('::ffff:')) {
+    return isPrivateAddress(address.slice(7));
+  }
+
+  if (net.isIPv4(address)) {
+    const [first, second] = address.split('.').map(Number);
+    return first === 0 || first === 10 || first === 127 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168) ||
+      (first === 198 && (second === 18 || second === 19)) ||
+      first >= 224;
+  }
+
+  const normalized = address.toLowerCase();
+  return normalized === '::' || normalized === '::1' ||
+    normalized.startsWith('fc') || normalized.startsWith('fd') ||
+    normalized.startsWith('fe8') || normalized.startsWith('fe9') ||
+    normalized.startsWith('fea') || normalized.startsWith('feb');
 }
 
 function injectWatermark(html) {

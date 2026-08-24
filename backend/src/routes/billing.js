@@ -34,10 +34,11 @@ router.post('/subscribe', authJwt, verifyCsrf, asyncHandler(async (req, res) => 
     return res.json({ message: 'Switched to Free plan', authorizationUrl: null });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: req.userId } });
-  const provider = getProvider(providerName);
-
   try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user) return res.status(401).json({ error: 'Account not found' });
+    const provider = getProvider(providerName);
+
     const { authorizationUrl, reference } = await provider.initializeTransaction({
       email: user.email,
       amountInMinorUnits: plan.amount,
@@ -62,7 +63,7 @@ router.post('/subscribe', authJwt, verifyCsrf, asyncHandler(async (req, res) => 
     res.json({ authorizationUrl, reference });
   } catch (err) {
     console.error('[billing/subscribe] error:', err.message);
-    res.status(502).json({ error: 'Could not start checkout', details: err.message });
+    res.status(502).json({ error: 'Could not start checkout' });
   }
 }));
 
@@ -81,14 +82,25 @@ router.post('/subscribe', authJwt, verifyCsrf, asyncHandler(async (req, res) => 
 router.get('/verify/:reference', authJwt, asyncHandler(async (req, res) => {
   const { reference } = req.params;
   const providerName = req.query.provider;
-  const provider = getProvider(providerName);
 
   try {
+    const provider = getProvider(providerName);
+    const payment = await prisma.payment.findFirst({
+      where: { reference, userId: req.userId },
+    });
+    if (!payment) return res.status(404).json({ error: 'Payment not found' });
+
     const result = await provider.verifyTransaction(reference);
+    if (result.planId !== payment.planId || result.amount !== payment.amount || result.currency !== payment.currency) {
+      return res.status(409).json({ error: 'Payment details do not match the selected plan' });
+    }
 
-    await prisma.payment.update({ where: { reference }, data: { status: result.status } });
+    const updated = await prisma.payment.updateMany({
+      where: { id: payment.id, status: 'pending' },
+      data: { status: result.status },
+    });
 
-    if (result.status === 'success' && result.planId) {
+    if (updated.count === 1 && result.status === 'success') {
       const currentPeriodEnd = new Date();
       currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
 
@@ -106,7 +118,7 @@ router.get('/verify/:reference', authJwt, asyncHandler(async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[billing/verify] error:', err.message);
-    res.status(502).json({ error: 'Could not verify payment', details: err.message });
+    res.status(502).json({ error: 'Could not verify payment' });
   }
 }));
 

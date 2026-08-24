@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 
 const authRoutes = require('./routes/auth');
 const convertRoutes = require('./routes/convert');
@@ -11,6 +12,8 @@ const webhookRoutes = require('./routes/webhooks');
 const { closeBrowser } = require('./services/pdfService');
 
 const app = express();
+
+app.use(helmet());
 
 // credentials: true + an explicit origin (never "*") are both required for
 // the browser to send/accept our httpOnly session cookie cross-origin.

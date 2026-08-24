@@ -67,7 +67,9 @@ class PaystackProvider extends PaymentProvider {
     const signature = headers['x-paystack-signature'];
     if (!signature) return false;
     const hash = crypto.createHmac('sha512', this.secretKey).update(rawBody).digest('hex');
-    return hash === signature;
+    const expected = Buffer.from(hash, 'hex');
+    const received = Buffer.from(signature, 'hex');
+    return expected.length === received.length && crypto.timingSafeEqual(expected, received);
   }
 
   parseWebhookEvent(payload) {

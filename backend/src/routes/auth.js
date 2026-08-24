@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const prisma = require('../db/prisma');
 const { generateApiKey } = require('../utils/apiKey');
 const { generateCsrfToken, sessionCookieOptions, csrfCookieOptions } = require('../utils/csrf');
@@ -11,6 +12,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const router = express.Router();
 const SESSION_COOKIE = authJwt.SESSION_COOKIE;
 const CSRF_COOKIE = verifyCsrf.CSRF_COOKIE;
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
 
 /** Issues a fresh session: sets the httpOnly JWT cookie + the readable CSRF cookie. */
 function startSession(res, userId) {
@@ -21,7 +23,7 @@ function startSession(res, userId) {
   res.cookie(CSRF_COOKIE, csrfToken, csrfCookieOptions());
 }
 
-router.post('/signup', asyncHandler(async (req, res) => {
+router.post('/signup', authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password || password.length < 8) {
     return res.status(400).json({ error: 'Valid email and password (8+ chars) are required' });
@@ -47,7 +49,7 @@ router.post('/signup', asyncHandler(async (req, res) => {
   res.status(201).json({ email: user.email });
 }));
 
-router.post('/login', asyncHandler(async (req, res) => {
+router.post('/login', authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });

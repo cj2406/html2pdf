@@ -39,7 +39,7 @@ router.post('/:provider', asyncHandler(async (req, res) => {
     await handleEvent(event, provider.name);
   } catch (err) {
     console.error('[webhook] handler error:', err.message);
-    // Still 200 — the provider retries on non-2xx, and we don't want dupes for a local bug.
+    return res.status(500).json({ error: 'Webhook processing failed' });
   }
 
   res.sendStatus(200);
@@ -47,12 +47,13 @@ router.post('/:provider', asyncHandler(async (req, res) => {
 
 async function handleEvent(event, providerName) {
   if (event.type === 'charge.success' && event.reference) {
-    const payment = await prisma.payment.update({
-      where: { reference: event.reference },
+    const updated = await prisma.payment.updateMany({
+      where: { reference: event.reference, status: 'pending' },
       data: { status: 'success' },
-    }).catch(() => null);
+    });
 
-    if (payment) {
+    if (updated.count === 1) {
+      const payment = await prisma.payment.findUnique({ where: { reference: event.reference } });
       const currentPeriodEnd = new Date();
       currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
       await prisma.subscription.create({
