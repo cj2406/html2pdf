@@ -82,14 +82,16 @@ async function convertHtmlToPdf(opts) {
       await page.setContent(finalHtml, { waitUntil: 'networkidle0', timeout: timeoutMs });
     }
 
-    const pdfBuffer = await page.pdf({
+    const pdfData = await page.pdf({
       format,
       landscape,
       printBackground,
       margin,
     });
 
-    return pdfBuffer;
+    // Puppeteer returns a Uint8Array in some versions; normalize it so Express
+    // sends binary PDF bytes instead of JSON-serializing the typed array.
+    return Buffer.from(pdfData);
   } finally {
     await page.close();
   }
