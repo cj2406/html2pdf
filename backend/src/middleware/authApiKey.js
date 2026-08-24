@@ -10,8 +10,8 @@ function currentPeriodMonth() {
  * 1. Resolves the API key -> user + active subscription plan.
  * 2. Enforces the plan's monthly conversion quota.
  * 3. Attaches req.billing = { userId, plan, apiKeyId, usedThisMonth } for downstream use.
- * Does NOT increment usage — that happens after a successful conversion
- * (see routes/convert.js) so failed conversions aren't billed.
+ * The conversion route reserves quota atomically before rendering and releases
+ * it if rendering fails, so concurrent requests cannot overspend the quota.
  */
 async function authApiKeyImpl(req, res, next) {
   const key = req.headers['x-api-key'] || (req.query && req.query.api_key);
@@ -64,12 +64,35 @@ async function authApiKeyImpl(req, res, next) {
   next();
 }
 
-async function recordUsage(userId, apiKeyId) {
+async function reserveUsage(userId, apiKeyId, monthlyLimit) {
   const periodMonth = currentPeriodMonth();
-  await prisma.usageLog.upsert({
-    where: { userId_periodMonth: { userId, periodMonth } },
-    update: { count: { increment: 1 }, apiKeyId },
-    create: { userId, apiKeyId, periodMonth, count: 1 },
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "usage_logs" ("user_id", "api_key_id", "period_month", "count")
+      VALUES (${userId}, ${apiKeyId}, ${periodMonth}, 0)
+      ON CONFLICT ("user_id", "period_month") DO NOTHING
+    `;
+    return tx.$executeRaw`
+      UPDATE "usage_logs"
+      SET "count" = "count" + 1, "api_key_id" = ${apiKeyId}
+      WHERE "user_id" = ${userId}
+        AND "period_month" = ${periodMonth}
+        AND "count" < ${monthlyLimit}
+    `;
+  });
+
+  if (updated !== 1) {
+    const error = new Error('Monthly conversion quota exceeded for your plan');
+    error.code = 'QUOTA_EXCEEDED';
+    throw error;
+  }
+}
+
+async function releaseUsage(userId) {
+  const periodMonth = currentPeriodMonth();
+  await prisma.usageLog.updateMany({
+    where: { userId, periodMonth, count: { gt: 0 } },
+    data: { count: { decrement: 1 } },
   });
 }
 
@@ -77,4 +100,4 @@ async function recordUsage(userId, apiKeyId) {
 // 500 instead of crashing the process — see utils/asyncHandler.js.
 const authApiKey = asyncHandler(authApiKeyImpl);
 
-module.exports = { authApiKey, recordUsage, currentPeriodMonth };
+module.exports = { authApiKey, reserveUsage, releaseUsage, currentPeriodMonth };

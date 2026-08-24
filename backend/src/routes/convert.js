@@ -1,5 +1,5 @@
 const express = require('express');
-const { authApiKey, recordUsage } = require('../middleware/authApiKey');
+const { authApiKey, reserveUsage, releaseUsage } = require('../middleware/authApiKey');
 const { convertHtmlToPdf } = require('../services/pdfService');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -31,7 +31,11 @@ router.post('/convert', authApiKey, async (req, res) => {
     return res.status(413).json({ error: `HTML payload exceeds the ${plan.maxFileSizeMb}MB limit for the ${plan.name} plan` });
   }
 
+  let usageReserved = false;
   try {
+    await reserveUsage(userId, apiKeyId, plan.monthlyConversions);
+    usageReserved = true;
+
     const pdfBuffer = await convertHtmlToPdf({
       html,
       url,
@@ -40,9 +44,9 @@ router.post('/convert', authApiKey, async (req, res) => {
       printBackground,
       margin,
       watermark: plan.watermark,
+      concurrencyKey: String(userId),
+      concurrencyLimit: plan.concurrentRequests,
     });
-
-    await recordUsage(userId, apiKeyId);
 
     res.set({
       'Content-Type': 'application/pdf',
@@ -52,8 +56,12 @@ router.post('/convert', authApiKey, async (req, res) => {
     });
     res.send(pdfBuffer);
   } catch (err) {
+    if (usageReserved) await releaseUsage(userId);
     console.error('[convert] error:', err.message);
-    res.status(422).json({ error: 'Conversion failed', details: err.message });
+    if (err.code === 'RENDER_CAPACITY' || err.code === 'QUOTA_EXCEEDED') {
+      return res.status(429).json({ error: err.message });
+    }
+    res.status(422).json({ error: 'Conversion failed' });
   }
 });
 
