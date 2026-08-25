@@ -19,8 +19,7 @@ function getBrowser() {
     const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     if (!executablePath) {
       throw new Error(
-        'PUPPETEER_EXECUTABLE_PATH is not set. Point it at a Chromium/Chrome binary ' +
-          '(the Dockerfile does this automatically). See backend/.env.example.'
+        'PUPPETEER_EXECUTABLE_PATH is not set. Point it at a Chromium/Chrome binary '
       );
     }
     browserPromise = puppeteer.launch({

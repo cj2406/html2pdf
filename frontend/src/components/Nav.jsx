@@ -13,11 +13,7 @@ export default function Nav() {
         <div className="nav-links">
           <a href="/#docs">Docs</a>
           <Link to="/pricing">Pricing</Link>
-          {loggedIn ? (
-            <Link to="/dashboard">Dashboard</Link>
-          ) : (
-            <Link to="/login">Log in</Link>
-          )}
+          {!loggedIn && <Link to="/login">Log in</Link>}
           <Link className="btn btn-primary" to={loggedIn ? '/dashboard' : '/signup'} style={{ padding: '8px 16px' }}>
             {loggedIn ? 'Dashboard' : 'Get API key'}
           </Link>

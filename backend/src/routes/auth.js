@@ -13,6 +13,7 @@ const router = express.Router();
 const SESSION_COOKIE = authJwt.SESSION_COOKIE;
 const CSRF_COOKIE = verifyCsrf.CSRF_COOKIE;
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Issues a fresh session: sets the httpOnly JWT cookie + the readable CSRF cookie. */
 function startSession(res, userId) {
@@ -24,8 +25,9 @@ function startSession(res, userId) {
 }
 
 router.post('/signup', authLimiter, asyncHandler(async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password || password.length < 8) {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = req.body?.password || '';
+  if (!EMAIL_PATTERN.test(email) || password.length < 8) {
     return res.status(400).json({ error: 'Valid email and password (8+ chars) are required' });
   }
 
