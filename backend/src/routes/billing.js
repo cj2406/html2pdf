@@ -63,6 +63,16 @@ router.post('/subscribe', authJwt, verifyCsrf, asyncHandler(async (req, res) => 
     res.json({ authorizationUrl, reference });
   } catch (err) {
     console.error('[billing/subscribe] error:', err.message);
+    if (err.response?.status === 429) {
+      const retryAfter = err.response.headers?.['retry-after'];
+      if (retryAfter) res.set('Retry-After', retryAfter);
+      return res.status(429).json({ error: 'Payment provider is temporarily rate limiting checkout. Please try again shortly.' });
+    }
+    if (err.response?.status === 400) {
+      const providerMessage = err.response.data?.message;
+      console.error('[billing/subscribe] provider response:', err.response.data);
+      return res.status(400).json({ error: providerMessage || 'Payment provider rejected the checkout request' });
+    }
     res.status(502).json({ error: 'Could not start checkout' });
   }
 }));
