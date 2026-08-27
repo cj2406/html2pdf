@@ -1,0 +1,20 @@
+{
+  "name": "html2pdf-client",
+  "version": "1.1.0",
+  "description": "Official TypeScript client for the HTML2PDF conversion API.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "MIT",
+  "keywords": ["html", "pdf", "convert", "api", "sdk"],
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
