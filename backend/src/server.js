@@ -13,6 +13,7 @@ const { closeBrowser } = require('./services/pdfService');
 
 const app = express();
 
+app.set('trust proxy', 1);
 app.use(helmet());
 
 // credentials: true + an explicit origin (never "*") are both required for
@@ -33,8 +34,13 @@ app.use('/api/webhooks', express.raw({ type: '*/*', limit: '2mb' }));
 app.use(express.json({ limit: '15mb' }));
 
 // Basic abuse protection on top of the per-plan quota enforced in authApiKey.
-const globalLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
-app.use('/api/', globalLimiter);
+// Exclude webhook traffic from the global API limiter because provider retries are
+// legitimate and should be handled by signature verification, not by 429s.
+const globalLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+app.use('/api/', (req, res, next) => {
+  if (req.path.startsWith('/webhooks/')) return next();
+  return globalLimiter(req, res, next);
+});
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
@@ -52,13 +58,14 @@ app.use((err, _req, res, _next) => {
 // (see utils/asyncHandler.js), so this should rarely fire — but if some
 // future code forgets to wrap a handler, this stops it from taking the
 // whole process down. Modern Node crashes on an unhandled rejection by
-// default; log-and-continue is almost always better for a running server
-// than a silent crash-restart loop.
+// default; a supervised restart is safer than continuing after a corrupted process state.
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection] This should have been caught by asyncHandler — check the stack below:', reason);
+  process.exit(1);
 });
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
+  process.exit(1);
 });
 
 const PORT = process.env.PORT || 4000;
@@ -67,8 +74,14 @@ const server = app.listen(PORT, () => {
 });
 
 process.on('SIGTERM', async () => {
+  const shutdownTimer = setTimeout(() => process.exit(1), 10_000);
+  shutdownTimer.unref();
+
   await closeBrowser();
-  server.close(() => process.exit(0));
+  server.close(() => {
+    clearTimeout(shutdownTimer);
+    process.exit(0);
+  });
 });
 
 module.exports = app;

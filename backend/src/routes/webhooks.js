@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../db/prisma');
 const { getProvider } = require('../services/payments');
+const { replaceActiveSubscription } = require('../services/subscriptions');
 const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -56,14 +57,11 @@ async function handleEvent(event, providerName) {
       const payment = await prisma.payment.findUnique({ where: { reference: event.reference } });
       const currentPeriodEnd = new Date();
       currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
-      await prisma.subscription.create({
-        data: {
-          userId: payment.userId,
-          planId: payment.planId,
-          status: 'active',
-          provider: providerName,
-          currentPeriodEnd,
-        },
+      await replaceActiveSubscription(prisma, {
+        userId: payment.userId,
+        planId: payment.planId,
+        provider: providerName,
+        currentPeriodEnd,
       });
     }
   }
@@ -73,7 +71,7 @@ async function handleEvent(event, providerName) {
     if (user) {
       await prisma.subscription.updateMany({
         where: { userId: user.id, status: 'active' },
-        data: { status: 'cancelled' },
+        data: { status: 'cancelled', currentPeriodEnd: new Date() },
       });
     }
   }
@@ -83,7 +81,7 @@ async function handleEvent(event, providerName) {
     if (user) {
       await prisma.subscription.updateMany({
         where: { userId: user.id, status: 'active' },
-        data: { status: 'past_due' },
+        data: { status: 'past_due', currentPeriodEnd: new Date() },
       });
     }
   }
