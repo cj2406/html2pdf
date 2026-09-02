@@ -4,6 +4,7 @@ const authJwt = require('../middleware/authJwt');
 const verifyCsrf = require('../middleware/csrf');
 const { listPlans, getPlan } = require('../services/plans');
 const { getProvider, listProviders } = require('../services/payments');
+const { replaceActiveSubscription } = require('../services/subscriptions');
 const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -114,14 +115,11 @@ router.get('/verify/:reference', authJwt, asyncHandler(async (req, res) => {
       const currentPeriodEnd = new Date();
       currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
 
-      await prisma.subscription.create({
-        data: {
-          userId: req.userId,
-          planId: result.planId,
-          status: 'active',
-          provider: provider.name,
-          currentPeriodEnd,
-        },
+      await replaceActiveSubscription(prisma, {
+        userId: req.userId,
+        planId: result.planId,
+        provider: provider.name,
+        currentPeriodEnd,
       });
     }
 

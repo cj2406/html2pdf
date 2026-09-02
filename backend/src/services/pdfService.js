@@ -1,6 +1,6 @@
-const puppeteer = require('puppeteer-core');
-const dns = require('dns').promises;
-const net = require('net');
+import { launch } from 'puppeteer-core';
+import { promises as dns } from 'dns';
+import { isIP, isIPv4 } from 'net';
 
 let browserPromise = null;
 const activeRenders = new Map();
@@ -22,12 +22,16 @@ function getBrowser() {
         'PUPPETEER_EXECUTABLE_PATH is not set. Point it at a Chromium/Chrome binary '
       );
     }
-    browserPromise = puppeteer.launch({
+    browserPromise = launch({
       headless: true,
       executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
-    browserPromise.catch(() => {
+    browserPromise.then((browser) => {
+      browser.on('disconnected', () => {
+        browserPromise = null;
+      });
+    }).catch(() => {
       browserPromise = null; // allow retry on next call if launch failed
     });
   }
@@ -77,20 +81,28 @@ async function convertHtmlToPdf(opts) {
     const browser = await getBrowser();
     page = await browser.newPage();
     page.setDefaultNavigationTimeout(timeoutMs);
+    await page.setRequestInterception(true);
+
+    page.on('request', async (request) => {
+      try {
+        const targetUrl = request.url();
+        if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+          await assertPublicUrl(targetUrl);
+          await request.continue();
+          return;
+        }
+        if (targetUrl.startsWith('data:')) {
+          await request.continue();
+          return;
+        }
+        await request.abort('blockedbyclient');
+      } catch {
+        await request.abort('blockedbyclient');
+      }
+    });
 
     if (url) {
       await assertPublicUrl(url);
-      await page.setRequestInterception(true);
-      page.on('request', async (request) => {
-        try {
-          if (request.url().startsWith('http://') || request.url().startsWith('https://')) {
-            await assertPublicUrl(request.url());
-          }
-          await request.continue();
-        } catch {
-          await request.abort('blockedbyclient');
-        }
-      });
       await page.goto(url, { waitUntil: 'networkidle0', timeout: timeoutMs });
     } else {
       let finalHtml = html;
@@ -144,7 +156,7 @@ async function assertPublicUrl(rawUrl) {
     throw new Error('Only public HTTP(S) URLs are allowed');
   }
 
-  const addresses = net.isIP(parsed.hostname)
+  const addresses = isIP(parsed.hostname)
     ? [parsed.hostname]
     : (await dns.lookup(parsed.hostname, { all: true })).map(({ address }) => address);
 
@@ -158,7 +170,7 @@ function isPrivateAddress(address) {
     return isPrivateAddress(address.slice(7));
   }
 
-  if (net.isIPv4(address)) {
+  if (isIPv4(address)) {
     const [first, second] = address.split('.').map(Number);
     return first === 0 || first === 10 || first === 127 ||
       (first === 100 && second >= 64 && second <= 127) ||
@@ -195,4 +207,4 @@ async function closeBrowser() {
   }
 }
 
-module.exports = { convertHtmlToPdf, closeBrowser, ALLOWED_FORMATS };
+export default { convertHtmlToPdf, closeBrowser, ALLOWED_FORMATS, assertPublicUrl };

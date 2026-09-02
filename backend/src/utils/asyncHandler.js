@@ -6,10 +6,9 @@
  * one request (see: Node's default --unhandled-rejections=throw behavior).
  *
  * Wrap every async route handler in this so a single bad request (e.g. a
- * database hiccup) turns into a 500 response instead of taking the whole
+ * database error) turns into a 500 response instead of taking the whole
  * process down with it.
  *
- * Usage: router.post('/signup', asyncHandler(async (req, res) => { ... }))
  */
 function asyncHandler(fn) {
   return function wrapped(req, res, next) {

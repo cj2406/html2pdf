@@ -1,6 +1,23 @@
 const prisma = require('../db/prisma');
 const { getPlan } = require('../services/plans');
+const { isSubscriptionActive } = require('../services/subscriptions');
 const asyncHandler = require('../utils/asyncHandler');
+
+//TODO
+//what is release and reserve usage,
+//learn tailwind
+//what to do bout cancel sub when theres no button
+//type of rate-limiter
+//sliding-window??
+//learn bucket4j
+//check school files
+/*whats the return value of 
+ public boolean tryConsume(UUID apiKeyId, Plan plan) {
+        Bucket bucket = buckets.computeIfAbsent(apiKeyId, id -> newBucket(plan.getMaxRequestsPerMinute()));
+        return bucket.tryConsume(1);
+    }
+         */
+// whats  @org.springframework.web.bind.annotation.RequestHeader(value = "x-paystack-signature", required = false)
 
 function currentPeriodMonth() {
   return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
@@ -34,7 +51,8 @@ async function authApiKeyImpl(req, res, next) {
     orderBy: { id: 'desc' },
   });
 
-  const planId = sub && sub.status === 'active' ? sub.planId : 'free';
+  const isActive = isSubscriptionActive(sub);
+  const planId = isActive ? sub.planId : 'free';
   const plan = getPlan(planId);
 
   const month = currentPeriodMonth();

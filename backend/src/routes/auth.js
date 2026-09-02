@@ -14,10 +14,11 @@ const SESSION_COOKIE = authJwt.SESSION_COOKIE;
 const CSRF_COOKIE = verifyCsrf.CSRF_COOKIE;
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('dummy-password', 10);
 
 /** Issues a fresh session: sets the httpOnly JWT cookie + the readable CSRF cookie. */
 function startSession(res, userId) {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '30d' });
+  const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '30d', algorithm: 'HS256' });
   const csrfToken = generateCsrfToken();
 
   res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
@@ -54,10 +55,9 @@ router.post('/signup', authLimiter, asyncHandler(async (req, res) => {
 router.post('/login', authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
-  const ok = await bcrypt.compare(password || '', user.passwordHash);
-  if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+  const ok = await bcrypt.compare(password || '', user ? user.passwordHash : DUMMY_PASSWORD_HASH);
+  if (!user || !ok) return res.status(401).json({ error: 'Invalid email or password' });
 
   startSession(res, user.id);
   res.json({ email: user.email });
